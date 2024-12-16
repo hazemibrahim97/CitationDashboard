@@ -431,9 +431,9 @@ def get_areas(author_data):
     topics = [t.get('subfield', {}).get('display_name', None) for t in topic]
     topics = [t for t in topics if t is not None]
     if len(topics) > 5:
-        return topics[:5]
+        return list(set(topics[:5]))
     else:
-        return topics
+        return list(set(topics))
 
 # Main title with custom styling
 st.markdown('<p class="title">Citation Analytics Dashboard</p>', unsafe_allow_html=True)
