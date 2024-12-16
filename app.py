@@ -107,12 +107,19 @@ def get_works(author_id):
     
     return works
 
-def get_citing_works(works):
+def get_citing_works(works, progress_bar=None):
     """Fetch works that cite the author's papers"""
     citing_works = []
     work_ids = [work['id'] for work in works]
+    total = len(work_ids)
     
-    for work_id in work_ids:
+    for i, work_id in enumerate(work_ids):
+        if progress_bar is not None:
+            # Update progress bar and message
+            progress = (i + 1) / total
+            progress_bar.progress(progress)
+            st.spinner(f'Fetching citations: paper {i+1} of {total}')
+            
         url = f"https://api.openalex.org/works?filter=cites:{work_id}"
         response = requests.get(url)
         if response.status_code == 200:
@@ -396,6 +403,33 @@ def get_institution_collaborations(works, author_id):
     
     return [i for i in institution_collabs if i['name'] is not None]
 
+def calculate_citation_concentration_index(citing_df):
+    """Calculate the citation-concentration index"""
+    # Get the list of citation counts
+    citation_counts = citing_df['Incoming citations'].tolist()
+    citation_counts.sort(reverse=True)
+    
+    # Find the largest number n where n papers cite >= n times
+    n = 0
+    for i, citations in enumerate(citation_counts, 1):
+        if citations >= i:
+            n = i
+        else:
+            break
+    
+    return n
+
+def get_areas(author_data):
+    """Extract research areas from author data"""
+    # print(author_data)
+    topic = author_data.get('topics', [])
+    topics = [t.get('subfield', {}).get('display_name', None) for t in topic]
+    topics = [t for t in topics if t is not None]
+    if len(topics) > 5:
+        return topics[:5]
+    else:
+        return topics
+
 # Main title with custom styling
 st.markdown('<p class="title">Citation Analytics Dashboard</p>', unsafe_allow_html=True)
 
@@ -424,6 +458,9 @@ with st.container():
             
             institutions = get_institutions(author_data['affiliations'])
             st.markdown(f"#### Institutions: {', '.join(institutions)}")
+            
+            areas = get_areas(author_data)
+            st.markdown(f"#### Research Areas: {', '.join(areas)}")
             
             # Create an expander for all publication-related tables
             with st.expander("Publication Analytics", expanded=True):
@@ -472,12 +509,14 @@ with st.container():
 
                 
                 # Display citing papers
-                with st.spinner('Fetching citation data...'):
-                    
-                    
+                with st.spinner(f'Fetching citations for {len(works)} papers...'):
                     col1, col2 = st.columns(2)
                     with col1:
-                        citing_works = get_citing_works(works)
+                        # Create a progress bar
+                        progress_bar = st.progress(0)
+                        citing_works = get_citing_works(works, progress_bar)
+                        # Clear the progress bar after completion
+                        progress_bar.empty()
                         citing_papers = [{
                             "ID" : work['id'],
                             'Title': work['title'],
@@ -507,6 +546,10 @@ with st.container():
                         citing_df = citing_df.drop_duplicates()
                         st.subheader("Most Frequent Citing Papers")
                         st.dataframe(citing_df, height=400, hide_index=True)
+                        
+                        # Calculate and display citation-concentration index
+                        c_index = calculate_citation_concentration_index(citing_df)
+                        st.markdown(f"#### Citation-concentration index = {c_index}", help=f"This means there are {c_index} papers that each cite this author {c_index} or more times")
                     
                     with col2:
                         st.subheader("Most Frequent Institution Collaborations")
