@@ -19,7 +19,7 @@ st.markdown("""
     .title {
         font-size: 64px !important;
         font-weight: bold !important;
-        color: #1f497d !important;
+        color: #E44242 !important;
         text-align: center !important;
         margin-bottom: 30px !important;
     }
@@ -439,9 +439,10 @@ st.write("")
 # Create a container for the input field
 with st.container():
     orcid = st.text_input(
-        "",  # Label is empty as we'll use placeholder text
+        "ORCID Input",  # Add a label
         placeholder="Enter the ORCID of the author you are interested in",
-        help="Enter a valid ORCID ID (e.g., 0000-0002-1825-0097)"
+        help="Enter a valid ORCID ID (e.g., 0000-0002-1825-0097)",
+        label_visibility="collapsed"  # Hide the label but maintain accessibility
     )
 
     if orcid:
