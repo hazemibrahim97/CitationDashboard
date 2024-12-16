@@ -509,7 +509,7 @@ with st.container():
 
                 
                 # Display citing papers
-                with st.spinner(f'Fetching citations for {len(works)} papers...'):
+                with st.spinner(f'Fetching citations for {len(works)} papers... '):
                     col1, col2 = st.columns(2)
                     with col1:
                         # Create a progress bar
