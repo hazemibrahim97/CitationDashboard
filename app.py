@@ -208,7 +208,8 @@ def create_publication_position_chart(works, author_id):
         xaxis_title="Year",
         yaxis_title="Number of Publications",
         legend_title="Author Position",
-        plot_bgcolor='#0E1117'
+        plot_bgcolor='#0E1117',
+        title_font_size=24  # Increase title font size
     )
     
     return fig
@@ -242,7 +243,8 @@ def create_citation_chart(citing_works, work_ids):
         xaxis_title="Year",
         yaxis_title="Number of Citations",
         legend_title="Citation Type",
-        plot_bgcolor='#0E1117'
+        plot_bgcolor='#0E1117',
+        title_font_size=24  # Increase title font size
     )
     
     return fig
@@ -283,7 +285,8 @@ def create_unique_collaborators_chart(works, author_id):
     fig.update_layout(
         xaxis_title="Year",
         yaxis_title="Number of Unique Collaborators",
-        plot_bgcolor='#0E1117'
+        plot_bgcolor='#0E1117',
+        title_font_size=24  # Increase title font size
     )
     
     return fig
@@ -335,7 +338,8 @@ def create_new_collaborators_chart(works, author_id):
     fig.update_layout(
         xaxis_title="Year",
         yaxis_title="Mean New Collaborators per Paper",
-        plot_bgcolor='#0E1117'
+        plot_bgcolor='#0E1117',
+        title_font_size=24  # Increase title font size
     )
     
     return fig
@@ -377,7 +381,8 @@ def create_team_size_chart(works):
     fig.update_layout(
         xaxis_title="Year",
         yaxis_title="Mean Team Size",
-        plot_bgcolor='#0E1117'
+        plot_bgcolor='#0E1117',
+        title_font_size=24  # Increase title font size
     )
     
     return fig
