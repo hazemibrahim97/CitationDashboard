@@ -112,22 +112,31 @@ def get_works(author_id):
     return works
 
 @st.cache_data(ttl=86400, show_spinner=False)
-def get_citing_works(works, _progress_bar=None):
+def get_citing_works(works):
     """Fetch works that cite the author's papers"""
     citing_works = []
     work_ids = [work['id'] for work in works]
-    total = len(work_ids)
     
-    for i, work_id in enumerate(work_ids):
-        if _progress_bar is not None:
-            progress = (i + 1) / total
-            _progress_bar.progress(progress)
-            
+    for work_id in work_ids:
         url = f"https://api.openalex.org/works?filter=cites:{work_id}"
         response = requests.get(url)
         if response.status_code == 200:
             data = response.json()
             citing_works.extend(data['results'])
+    
+    return citing_works
+
+def get_citing_works_with_progress(works):
+    """Wrapper function to show progress while fetching citing works"""
+    total_works = len(works)
+    progress_bar = st.progress(0)
+    
+    # Get the citing works
+    citing_works = get_citing_works(works)
+    
+    # Update progress bar to completion
+    progress_bar.progress(1.0)
+    progress_bar.empty()
     
     return citing_works
 
@@ -685,19 +694,13 @@ with st.container():
                 with st.spinner(f'Fetching citations for {len(works)} papers... '):
                     col1, col2 = st.columns(2)
                     with col1:
-                        # Create a progress bar
-                        progress_bar = st.progress(0)
-                        citing_works = get_citing_works(works, progress_bar)
-                        # Clear the progress bar after completion
-                        progress_bar.empty()
+                        citing_works = get_citing_works_with_progress(works)
                         citing_papers = [{
-                            "ID" : work['id'],
+                            "ID": work['id'],
                             'Title': work['title'],
                             'Venue': get_venue(work),
-                            'Is Self' : 'True' if work['id'] in works_ids else 'False'
+                            'Is Self': 'True' if work['id'] in works_ids else 'False'
                         } for work in citing_works]
-                        
-                        
                         
                         citing_freq = Counter(d['ID'] for d in citing_papers)
                         
