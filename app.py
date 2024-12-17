@@ -392,6 +392,40 @@ def create_team_size_chart(works):
     
     return fig
 
+def create_collaboration_distribution_chart(works, author_id):
+    """Create histogram of collaboration frequencies"""
+    # Get all collaborations
+    collaborators = get_collaborators(works, author_id)
+    collab_counts = Counter(c['name'] for c in collaborators)
+    
+    # Create frequency distribution
+    freq_dist = Counter(collab_counts.values())
+    
+    # Convert to DataFrame for plotting
+    plot_data = pd.DataFrame([
+        {'Number of Collaborations': count, 'Frequency': freq}
+        for count, freq in sorted(freq_dist.items())
+    ])
+    
+    fig = px.bar(plot_data,
+                 x='Number of Collaborations',
+                 y='Frequency',
+                 title='Distribution of Collaboration Frequencies',
+                 labels={
+                     'Number of Collaborations': 'Number of Times Collaborated',
+                     'Frequency': 'Number of Collaborators'
+                 })
+    
+    fig.update_layout(
+        xaxis_title="Number of Times Collaborated",
+        yaxis_title="Number of Collaborators",
+        plot_bgcolor='#0E1117',
+        paper_bgcolor='#0E1117',
+        title_font_size=24
+    )
+    
+    return fig
+
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_institution_collaborations(works, author_id):
     """Extract institution collaborations from works"""
@@ -615,7 +649,7 @@ with st.container():
                         works_ids = [work['id'] for work in works]
                         works_df = pd.DataFrame([{
                             'Title': w['title'],
-                            'Year': w['publication_year'],
+                            'Year': str(w['publication_year']),  # Convert to string to prevent comma formatting
                             'Venue': get_venue(w),
                             'Citations': w.get('cited_by_count', 0)
                         } for w in works])
@@ -727,8 +761,17 @@ with st.container():
                     
                     
                     team_size_fig = create_team_size_chart(works)
-                    st.plotly_chart(team_size_fig, use_container_width=True)
                     
+                    # Create two columns for team size and collaboration distribution
+                    col5, col6 = st.columns(2)
+                    
+                    with col5:
+                        st.plotly_chart(team_size_fig, use_container_width=True)
+                    
+                    with col6:
+                        collab_dist_fig = create_collaboration_distribution_chart(works, author_data['id'])
+                        st.plotly_chart(collab_dist_fig, use_container_width=True)
+            
             with st.expander("Collaboration Network", expanded = True):                        # Add network visualization here
                 st.subheader("Recent Collaboration Network")
                 with st.spinner('Building collaboration network... this may take a while.'):
