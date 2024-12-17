@@ -474,14 +474,13 @@ def get_areas(author_data):
         return list(set(topics))
 
 @st.cache_data(ttl=86400, show_spinner=False)
-def get_collaborator_network(works, author_id, max_depth=2):
+def get_collaborator_network(works, author_id, author_name, max_depth=2):
     """Build a network of collaborators up to max_depth"""
     G = nx.Graph()
     processed_authors = set()
     
-    # Add main author
-    G.add_node(author_id, name=works[0]['authorships'][0]['author']['display_name'],
-               level=0)
+    # Add main author with provided name
+    G.add_node(author_id, name=author_name, level=0)
     processed_authors.add(author_id)
     
     def add_collaborations(works, source_id, level):
@@ -775,7 +774,7 @@ with st.container():
             with st.expander("Collaboration Network", expanded = True):                        # Add network visualization here
                 st.subheader("Recent Collaboration Network")
                 with st.spinner('Building collaboration network... this may take a while.'):
-                    network = get_collaborator_network(works, author_data['id'])
+                    network = get_collaborator_network(works, author_data['id'], author_data.get('display_name'))
                     network_fig = create_network_graph(network, author_data['id'])
                     st.plotly_chart(network_fig, use_container_width=True, height=800)
             
