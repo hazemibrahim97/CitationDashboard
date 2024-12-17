@@ -126,18 +126,26 @@ def get_citing_works(works):
     
     return citing_works
 
+@st.cache_data(ttl=86400, show_spinner=False)
 def get_citing_works_with_progress(works):
     """Wrapper function to show progress while fetching citing works"""
-    total_works = len(works)
+    citing_works = []
+    work_ids = [work['id'] for work in works]
+    total = len(work_ids)
     progress_bar = st.progress(0)
     
-    # Get the citing works
-    citing_works = get_citing_works(works)
+    for i, work_id in enumerate(work_ids):
+        url = f"https://api.openalex.org/works?filter=cites:{work_id}"
+        response = requests.get(url)
+        if response.status_code == 200:
+            data = response.json()
+            citing_works.extend(data['results'])
+        
+        # Update progress
+        progress = (i + 1) / total
+        progress_bar.progress(progress)
     
-    # Update progress bar to completion
-    progress_bar.progress(1.0)
     progress_bar.empty()
-    
     return citing_works
 
 @st.cache_data(ttl=86400, show_spinner=False)
