@@ -5,6 +5,8 @@ from collections import Counter
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import networkx as nx
+import numpy as np
 
 # Configure the page layout and style
 st.set_page_config(
@@ -78,6 +80,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+@st.cache_data(ttl=86400, show_spinner=False)  # Cache for 24 hours
 def get_author_data(orcid):
     """Fetch author data from OpenAlex API"""
     base_url = f"https://api.openalex.org/authors/https://orcid.org/{orcid}"
@@ -86,6 +89,7 @@ def get_author_data(orcid):
         return response.json()
     return None
 
+@st.cache_data(ttl=86400, show_spinner=False)
 def get_works(author_id):
     """Fetch all works by the author"""
     works = []
@@ -107,18 +111,17 @@ def get_works(author_id):
     
     return works
 
-def get_citing_works(works, progress_bar=None):
+@st.cache_data(ttl=86400, show_spinner=False)
+def get_citing_works(works, _progress_bar=None):
     """Fetch works that cite the author's papers"""
     citing_works = []
     work_ids = [work['id'] for work in works]
     total = len(work_ids)
     
     for i, work_id in enumerate(work_ids):
-        if progress_bar is not None:
-            # Update progress bar and message
+        if _progress_bar is not None:
             progress = (i + 1) / total
-            progress_bar.progress(progress)
-            st.spinner(f'Fetching citations: paper {i+1} of {total}')
+            _progress_bar.progress(progress)
             
         url = f"https://api.openalex.org/works?filter=cites:{work_id}"
         response = requests.get(url)
@@ -128,6 +131,7 @@ def get_citing_works(works, progress_bar=None):
     
     return citing_works
 
+@st.cache_data(ttl=86400, show_spinner=False)
 def get_collaborators(works, author_id):
     """Extract unique collaborators from works, excluding the main author"""
     collaborators = []
@@ -141,7 +145,7 @@ def get_collaborators(works, author_id):
                 })
     return [c for c in collaborators if c['name'] is not None]
 
-
+@st.cache_data(ttl=86400, show_spinner=False)
 def get_institutions(affiliations):
     """Extract unique institutions from affiliations"""
     institutions = []
@@ -151,6 +155,7 @@ def get_institutions(affiliations):
             
     return institutions
 
+@st.cache_data(ttl=86400, show_spinner=False)
 def get_venue(work):
     """Extract venue from work"""
     try:
@@ -387,17 +392,16 @@ def create_team_size_chart(works):
     
     return fig
 
+@st.cache_data(ttl=86400, show_spinner=False)
 def get_institution_collaborations(works, author_id):
     """Extract institution collaborations from works"""
     institution_collabs = []
     for work in works:
         for author in work.get('authorships', []):
-            # Skip if it's the main author or if author info is missing
             if (not author.get('author') or 
                 author['author'].get('id') == author_id):
                 continue
                 
-            # Get institution info
             institutions = author.get('institutions', [])
             for inst in institutions:
                 if inst.get('display_name'):
@@ -424,9 +428,9 @@ def calculate_citation_concentration_index(citing_df):
     
     return n
 
+@st.cache_data(ttl=86400, show_spinner=False)
 def get_areas(author_data):
     """Extract research areas from author data"""
-    # print(author_data)
     topic = author_data.get('topics', [])
     topics = [t.get('subfield', {}).get('display_name', None) for t in topic]
     topics = [t for t in topics if t is not None]
@@ -434,6 +438,138 @@ def get_areas(author_data):
         return list(set(topics[:5]))
     else:
         return list(set(topics))
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def get_collaborator_network(works, author_id, max_depth=2):
+    """Build a network of collaborators up to max_depth"""
+    G = nx.Graph()
+    processed_authors = set()
+    
+    # Add main author
+    G.add_node(author_id, name=works[0]['authorships'][0]['author']['display_name'],
+               level=0)
+    processed_authors.add(author_id)
+    
+    def add_collaborations(works, source_id, level):
+        if level > max_depth:
+            return
+            
+        # Create a single dictionary to track both counts and info
+        author_data = {}
+        
+        # Single pass through works to collect all data
+        for work in works:
+            for authorship in work['authorships']:
+                target_id = authorship['author'].get('id')
+                if not target_id or target_id == source_id:
+                    continue
+                    
+                if target_id not in author_data:
+                    author_data[target_id] = {
+                        'name': authorship['author'].get('display_name'),
+                        'count': 1
+                    }
+                else:
+                    author_data[target_id]['count'] += 1
+        
+        # Add nodes and edges for frequent collaborators
+        frequent_collaborators = []
+        for target_id, data in author_data.items():
+            if data['count'] > 2:  # Only add frequent collaborators
+                if target_id not in G:
+                    G.add_node(target_id, name=data['name'], level=level)
+                G.add_edge(source_id, target_id)
+                frequent_collaborators.append(target_id)
+        
+        # Process next level
+        if level < max_depth:
+            # Batch API calls for next level
+            for target_id in frequent_collaborators:
+                if target_id not in processed_authors:
+                    processed_authors.add(target_id)
+                    collab_works_url = f"https://api.openalex.org/works?filter=author.id:{target_id}&per-page=100"
+                    response = requests.get(collab_works_url)
+                    if response.status_code == 200:
+                        collab_works = response.json()['results']
+                        add_collaborations(collab_works, target_id, level + 1)
+    
+    # Start building network
+    add_collaborations(works, author_id, 1)
+    return G
+
+def create_network_graph(G, author_id):
+    """Create interactive network visualization using Plotly"""
+    pos = nx.spring_layout(G, k=1/np.sqrt(len(G.nodes())), iterations=50)
+    
+    # Calculate distances from main author
+    distances = nx.single_source_shortest_path_length(G, author_id)
+    
+    edge_x = []
+    edge_y = []
+    for edge in G.edges():
+        x0, y0 = pos[edge[0]]
+        x1, y1 = pos[edge[1]]
+        edge_x.extend([x0, x1, None])
+        edge_y.extend([y0, y1, None])
+    
+    edge_trace = go.Scatter(
+        x=edge_x, y=edge_y,
+        line=dict(width=0.5, color='#888'),
+        hoverinfo='none',
+        mode='lines')
+    
+    node_x = []
+    node_y = []
+    node_colors = []
+    node_sizes = []
+    node_text = []
+    
+    for node in G.nodes():
+        x, y = pos[node]
+        node_x.append(x)
+        node_y.append(y)
+        
+        # Color scheme based on distance
+        if node == author_id:
+            node_colors.append('#FFFF00')  # Yellow for main author
+            node_sizes.append(20)
+        else:
+            # Dim nodes that are two edges away
+            opacity = 1.0 if distances.get(node, 2) < 2 else 0.3
+            node_colors.append(f'rgba(255,255,255,{opacity})')  # White with opacity
+            node_sizes.append(15)
+        
+        # Hover text
+        if node == author_id:
+            node_text.append(f"Author: {G.nodes[node]['name']}<br>(Main Author)")
+        else:
+            node_text.append(f"Author: {G.nodes[node]['name']}")
+    
+    node_trace = go.Scatter(
+        x=node_x, y=node_y,
+        mode='markers',
+        hoverinfo='text',
+        text=node_text,
+        marker=dict(
+            color=node_colors,
+            size=node_sizes,
+            line_width=2,
+            line=dict(color='#000')
+        ))
+    
+    fig = go.Figure(data=[edge_trace, node_trace],
+                   layout=go.Layout(
+                       showlegend=False,
+                       hovermode='closest',
+                       margin=dict(b=20, l=20, r=20, t=20),
+                       plot_bgcolor='#0E1117',
+                       paper_bgcolor='#0E1117',
+                       xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                       yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                       height=800
+                   ))
+    
+    return fig
 
 # Main title with custom styling
 st.markdown('<p class="title">Citation Analytics Dashboard</p>', unsafe_allow_html=True)
@@ -512,9 +648,7 @@ with st.container():
                         venue_df = venue_df[venue_df['Venue'] != 'N/A']
                         st.dataframe(venue_df, height=400, hide_index=True)
                 
-
                 
-                # Display citing papers
                 with st.spinner(f'Fetching citations for {len(works)} papers... '):
                     col1, col2 = st.columns(2)
                     with col1:
@@ -594,6 +728,52 @@ with st.container():
                     
                     team_size_fig = create_team_size_chart(works)
                     st.plotly_chart(team_size_fig, use_container_width=True)
+                    
+            with st.expander("Collaboration Network", expanded = True):                        # Add network visualization here
+                st.subheader("Recent Collaboration Network")
+                with st.spinner('Building collaboration network... this may take a while.'):
+                    network = get_collaborator_network(works, author_data['id'])
+                    network_fig = create_network_graph(network, author_data['id'])
+                    st.plotly_chart(network_fig, use_container_width=True, height=800)
             
         else:
             st.error("Could not find author with this ORCID ID") 
+
+    # After creating the plot, add this JavaScript
+    st.markdown("""
+        <script>
+        const graphDiv = document.querySelector('[id*="network_graph"]');
+        if (graphDiv) {
+            graphDiv.on('plotly_click', function(data) {
+                if (!data || !data.points || !data.points[0]) return;
+                
+                const clickedNode = data.points[0].customdata;
+                const graph = graphDiv.data[1];
+                const colors = [];
+                const neighbors = new Set();
+                
+                // Get neighbors of clicked node
+                for (let i = 0; i < graphDiv.data[0].x.length; i += 3) {
+                    const source = graphDiv.data[0].x[i];
+                    const target = graphDiv.data[0].x[i + 1];
+                    if (source === clickedNode) neighbors.add(target);
+                    if (target === clickedNode) neighbors.add(source);
+                }
+                
+                // Update colors
+                for (let i = 0; i < graph.marker.color.length; i++) {
+                    const nodeId = graph.customdata[i];
+                    if (nodeId === clickedNode) {
+                        colors.push('#FFFF00');  // Yellow for clicked node
+                    } else if (neighbors.has(nodeId)) {
+                        colors.push('#FFFFFF');  // White for neighbors
+                    } else {
+                        colors.push('rgba(255,255,255,0.3)');  // Dimmed for others
+                    }
+                }
+                
+                Plotly.restyle(graphDiv, {'marker.color': [colors]}, [1]);
+            });
+        }
+        </script>
+    """, unsafe_allow_html=True)
