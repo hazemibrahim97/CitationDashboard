@@ -173,6 +173,25 @@ def get_institutions(affiliations):
     return institutions
 
 @st.cache_data(ttl=86400, show_spinner=False)
+def get_institutions_single(affiliations):
+    """Extract unique institutions from affiliations"""
+    
+    try:
+        insts = get_institutions(affiliations)
+        
+        if len(insts) == 0:
+            return insts[0]
+        
+        if len(insts) > 2:
+            return ", ".join(insts[:2])
+        else:
+            return ", ".join(insts)
+
+    except:
+        return 'Unknown institution'
+    
+
+@st.cache_data(ttl=86400, show_spinner=False)
 def get_venue(work):
     """Extract venue from work"""
     try:
@@ -621,6 +640,29 @@ def create_network_graph(G, author_id):
     
     return fig
 
+# Add this function to search authors
+@st.cache_data(ttl=86400, show_spinner=False)
+def search_authors(query):
+    """Search authors by name in OpenAlex"""
+    if not query or len(query) < 3:  # Only search if query is meaningful
+        return []
+        
+    url = f"https://api.openalex.org/authors?search={query}&per-page=10"
+    response = requests.get(url)
+    if response.status_code == 200:
+        results = response.json()['results']
+        # Format results for dropdown
+        return [
+            {
+                'id': author['id'],
+                'label': f"{author.get('display_name')} ({get_institutions_single(author.get('affiliations'))})",
+                'display_name': author.get('display_name')
+            }
+            for author in results
+            if author.get('display_name')
+        ]
+    return []
+
 # Main title with custom styling
 st.markdown('<p class="title">Citation Analytics Dashboard</p>', unsafe_allow_html=True)
 
@@ -629,17 +671,60 @@ st.write("")
 
 # Create a container for the input field
 with st.container():
-    orcid = st.text_input(
-        "ORCID Input",  # Add a label
-        placeholder="Enter the ORCID of the author you are interested in",
-        help="Enter a valid ORCID ID (e.g., 0000-0002-1825-0097)",
-        label_visibility="collapsed"  # Hide the label but maintain accessibility
+    # Initialize session state for search
+    if 'search_query' not in st.session_state:
+        st.session_state.search_query = ''
+    if 'selected_author' not in st.session_state:
+        st.session_state.selected_author = None
+    if 'search_results' not in st.session_state:
+        st.session_state.search_results = []
+
+    # Search input
+    search_query = st.text_input(
+        "Author Search",
+        placeholder="Enter author name",
+        help="Enter the name of the author you are interested in",
+        key="author_search",
+        label_visibility="collapsed"
     )
 
-    if orcid:
+    # Update search results when query changes
+    if search_query != st.session_state.search_query:
+        st.session_state.search_query = search_query
+        if len(search_query) >= 3:  # Only search if query is meaningful
+            with st.spinner('Searching authors...'):
+                st.session_state.search_results = search_authors(search_query)
+                if not st.session_state.search_results:
+                    st.error("No authors found matching your search query.")
+        else:
+            st.session_state.search_results = []
+            st.session_state.selected_author = None
+
+    # Show dropdown if we have results
+    if st.session_state.search_results:
+        options = {result['label']: result for result in st.session_state.search_results}
+        # Add default option
+        options = {"Select Author": None, **options}
+        
+        selected = st.selectbox(
+            "Select Author",
+            options.keys(),
+            label_visibility="collapsed",
+            index=0  # Show "Select Author" by default
+        )
+        
+        if selected and selected != "Select Author":
+            st.session_state.selected_author = options[selected]
+        else:
+            st.session_state.selected_author = None
+
+    # Process selected author
+    if st.session_state.selected_author:
+        author_id = st.session_state.selected_author['id']
         # Get author data
         with st.spinner('Fetching author information...'):
-            author_data = get_author_data(orcid)
+            author_data = get_author_data(author_id)
+            author_name = author_data.get('display_name')
             
         if author_data:
             # Display author info
@@ -699,7 +784,7 @@ with st.container():
                         st.dataframe(venue_df, height=400, hide_index=True)
                 
                 
-                with st.spinner(f'Fetching citations for {len(works)} papers... '):
+                with st.spinner(f"Fetching what papers cited {author_name}'s {len(works)} papers... "):
                     col1, col2 = st.columns(2)
                     with col1:
                         citing_works = get_citing_works_with_progress(works)
@@ -727,6 +812,8 @@ with st.container():
                         )
                         # Reorder columns and drop ID
                         citing_df = citing_df[['Title', 'Venue', 'Incoming citations', 'Is Self']]
+                        citing_df['Incoming citations'] = citing_df['Incoming citations'].astype(int)
+                        
                         citing_df = citing_df.drop_duplicates()
                         st.subheader("Most Frequent Citing Papers")
                         st.dataframe(citing_df, height=400, hide_index=True)
@@ -734,6 +821,10 @@ with st.container():
                         # Calculate and display citation-concentration index
                         c_index = calculate_citation_concentration_index(citing_df)
                         st.markdown(f"#### Citation-concentration index = {c_index}", help=f"This means there are {c_index} papers that each cite this author {c_index} or more times")
+                        print(author_data.get('cited_by_count', 0))
+                        print(author_data.get('summary_stats', {}).get('h_index', 1))
+                        st.markdown(f"#### c/h² index = {author_data.get('cited_by_count', 0)/author_data.get('summary_stats', {}).get('h_index', 1)**2}", help=f"The c/h² index is a measure of the citation concentration of an author's papers. It is calculated by dividing the total number of citations by the square of the author's h-index. A lower c/h² index indicates that citations received by the author are concentrated in the papers which contribute to their h-index.")
+                        st.markdown(f"#### Self-citation rate = {round(citing_df.loc[citing_df['Is Self'] == 'True']['Incoming citations'].sum() * 100/citing_df['Incoming citations'].sum(), 2)}%", help=f"The self-citation rate is the percentage of citations that are to the author's own papers. A higher self-citation rate indicates that the author cites their own papers more frequently.")
                     
                     with col2:
                         st.subheader("Most Frequent Institution Collaborations")
@@ -744,7 +835,6 @@ with st.container():
                             columns=['Institution', 'Number of Collaborations']
                         )
                         st.dataframe(inst_df, height=400, hide_index=True)
-            
             # Create an expander for figures
             with st.expander("Figures", expanded=True):
                 with st.spinner('Generating visualization charts...'):
