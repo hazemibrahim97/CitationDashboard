@@ -111,20 +111,6 @@ def get_works(author_id):
     
     return works
 
-@st.cache_data(ttl=86400, show_spinner=False)
-def get_citing_works(works):
-    """Fetch works that cite the author's papers"""
-    citing_works = []
-    work_ids = [work['id'] for work in works]
-    
-    for work_id in work_ids:
-        url = f"https://api.openalex.org/works?filter=cites:{work_id}"
-        response = requests.get(url)
-        if response.status_code == 200:
-            data = response.json()
-            citing_works.extend(data['results'])
-    
-    return citing_works
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_citing_works_with_progress(works):
@@ -135,11 +121,22 @@ def get_citing_works_with_progress(works):
     progress_bar = st.progress(0)
     
     for i, work_id in enumerate(work_ids):
-        url = f"https://api.openalex.org/works?filter=cites:{work_id}"
-        response = requests.get(url)
-        if response.status_code == 200:
-            data = response.json()
-            citing_works.extend(data['results'])
+        page = 1
+        per_page = 100
+        
+        while True:
+            url = f"https://api.openalex.org/works?filter=cites:{work_id}&page={page}&per-page={per_page}"
+            response = requests.get(url)
+            if response.status_code == 200:
+                data = response.json()
+                citing_works.extend(data['results'])
+                
+                # Check if there are more pages
+                if len(data['results']) < per_page:
+                    break
+                page += 1
+            else:
+                break
         
         # Update progress
         progress = (i + 1) / total
@@ -257,9 +254,7 @@ def create_publication_position_chart(works, author_id):
 
 def create_citation_chart(citing_works, work_ids):
     """Create temporal chart of citations received"""
-    # citing_works = get_citing_works(works)
-    
-    # Extract year and self-citation status for each citation
+
     cite_data = []
     for work in citing_works:
         year = work.get('publication_year')
